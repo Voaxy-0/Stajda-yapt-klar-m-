@@ -1,0 +1,1155 @@
+
+KONU: Yüksek Erişilebilirlikli Moodle 4.5 Altyapısı Kurulumu,
+Yapay Zeka (Ollama) Entegrasyonu ve Sistem Yönetimi
+Proje         : Moodle LMS Küme Altyapısı ve AI Entegrasyonu
+Ortam         : VMware Workstation 22.x, Ubuntu 26.04 LTS
+Kapsam        : 5 Sunucu, Docker, PostgreSQL 18.4, Redis 8.0,
+NFS, Ollama AI, Moodle 4.5.12+
+1. HAFTA: ALTYAPI KURULUMU
+1. GÜN 1: 15 HAZİRAN 2026 (PAZARTESİ)
+PROJE PLANLAMASI, GEREKSİNİM ANALİZİ VE MİMARİ TASARIM
+1.1 PROJENİN TANIMI VE AMACI
+Kurum bünyesinde uzaktan eğitim faaliyetlerinde kullanılmak üzere,
+yüksek erişilebilirlikli (High Availability), ölçeklenebilir ve
+yapay zeka destekli bir Moodle Öğrenme Yönetim Sistemi (LMS)
+altyapısı kurulması hedeflenmiştir.
+Projenin temel hedefleri:
+- 7/24 kesintisiz hizmet verebilen bir LMS altyapısı
+- İki web sunucusu ile yük dengeleme ve yedeklilik
+- Merkezi veritabanı yönetimi
+- Redis tabanlı oturum paylaşımı
+- NFS ile ortak dosya sistemi
+- Yerel yapay zeka (LLM) entegrasyonu ile içerik üretimi
+1.2 GEREKSİNİM ANALİZİ
+1.2.1 Fonksiyonel Gereksinimler
+FR-01: Kullanıcılar web tarayıcı üzerinden Moodle'a erişebilmeli
+FR-02: Sistem 500 eş zamanlı kullanıcıyı desteklemeli
+FR-03: Bir web sunucusu arızalandığında diğeri hizmete devam etmeli
+FR-04: Kullanıcı oturumları sunucular arası paylaşılmalı
+FR-05: Yapay zeka ile metin üretimi ve özetleme yapılabilmeli
+FR-06: Tüm sistem bileşenleri merkezi olarak yönetilebilmeli
+1.2.2 Teknik Gereksinimler
+TR-01: Sanallaştırma: VMware Workstation 22.x
+TR-02: İşletim Sistemi: Ubuntu 26.04 LTS (tüm sunucular)
+TR-03: Web Sunucusu: Apache 2.4 + PHP 8.2
+TR-04: Veritabanı: PostgreSQL 18.4
+TR-05: Önbellek: Redis 8.0
+TR-06: Konteyner: Docker + Docker Compose (APP1)
+TR-07: Dosya Paylaşımı: NFS
+TR-08: AI Model: llama3.2:3b (Ollama)
+1.3 MİMARİ TASARIM
+Sistem, 5 katmanlı bir mimari üzerine inşa edilmiştir:
+1. Sunum Katmanı     : Apache Web Sunucusu, TinyMCE Editör
+2. Uygulama Katmanı  : Moodle 4.5.12+ PHP Uygulaması
+3. Önbellek Katmanı  : Redis (Oturum + Uygulama Önbelleği)
+4. Veri Katmanı      : PostgreSQL 18.4 (İlişkisel Veritabanı)
+5. Depolama Katmanı  : NFS (Paylaşımlı Dosya Sistemi)
+6. AI Katmanı        : Ollama (Yerel LLM - APP1 üzerinde)
+Mimari Diyagram:
+KULLANICILAR (Web Tarayıcı)
+▼      ▼
+APP1 (10.10.13.26)          APP2 (10.10.12.57)
+Docker Engine             Apache 2.4
+moodle-
+container              Moodle 4.5.12+
+:80                    :80
+Ollama AI
+:11434
+▼▼▼              ▼
+DPPOSTGRESQL                         REDİS-SERVER
+10.10.13.27:5432                     10.10.12.54:6379
+PostgreSQL 18.4                      Redis 8.0.5
+moodledb (485 tablo)                 Oturum Paylaşımı
+NFS-SERVER
+/srv/moodledata (Paylaşımlı Moodle Veri Dizini)
+1.4 IP ADRESLEME PLANI
+Kurum ağında iki farklı alt ağ (subnet) kullanılmıştır. Bu sayede
+sunucular mantıksal olarak gruplandırılmış, ağ trafiği optimize
+edilmiştir.
+Tablo-1: 1. HAFTA: ALTYAPI KURULUMU
+Sunucu	IP Adresi	Alt Ağ	Açıklama
+
+Tablo-2: 1. HAFTA: ALTYAPI KURULUMU
+APP1	10.10.13.26/24	10.10.13.0	Web + AI
+APP2	10.10.12.57/24	10.10.12.0	Web
+DPPOSTGRESQL	10.10.13.27/24	10.10.13.0	Veritabanı
+REDİS-SERVER	10.10.12.54/24	10.10.12.0	Oturum
+NFS-SERVER	10.10.13.28/24	10.10.13.0	Dosya
+
+APP1 ve DPPOSTGRESQL aynı alt ağda (10.10.13.0/24) bulunarak
+veritabanı trafiğinin düşük gecikmeli olması sağlanmıştır.
+APP2 ve REDİS-SERVER aynı alt ağda (10.10.12.0/24) bulunarak
+oturum trafiği optimize edilmiştir.
+1.5 KULLANILACAK TEKNOLOJİLER VE SEÇİLME GEREKÇELERİ
+Teknoloji             Seçilme Gerekçesi
+Ubuntu 26.04 LTS      5 yıl güvenlik güncellemesi, en güncel
+kernel 7.0, geniş paket ekosistemi
+VMware Workstation    Kurumda mevcut lisans, snapshot/clone
+desteği, hızlı yedekleme
+PostgreSQL 18.4       Yüksek performans, ACID uyumlu, açık
+kaynak, Moodle tarafından resmi destek
+Redis 8.0             Mikrosaniye yanıt süresi, veri yapıları
+desteği, kümeleme (cluster) hazır
+Docker + Compose      Taşınabilirlik, bağımlılık izolasyonu,
+Ollama + llama3.2     Tamamen yerel, veri gizliliği, OpenAI
+API uyumlu, Türkçe desteği, ücretsiz
+NFS                   Linux native, düşük ek yük, basit
+yapılandırma, geniş uyumluluk
+1.6 PROJE ZAMAN ÇİZELGESİ
+Hafta    Faaliyetler
+1. Hafta Planlama, VM kurulumu, ağ, PostgreSQL, Redis, Docker
+(1-5)    APP2 kurulumu, NFS
+2. Hafta APP1 entegrasyon sorunları, APP2 ağ arızası çözümü,
+(6-10)   Moodle 4.5 yükseltme (iki sunucu)
+3. Hafta Ollama AI kurulumu, Moodle AI entegrasyonu,
+(11-15)  sorun giderme (5 aşamalı), test ve doğrulama
+4. Hafta Performans analizi, güvenlik denetimi,
+(16-20)  dokümantasyon, raporlama, proje teslimi
+2. GÜN 2: 16 HAZİRAN 2026 (SALI)
+VMWARE SANAL MAKİNE OLUŞTURMA VE UBUNTU KURULUMU
+2.1 VMWARE WORKSTATION YAPILANDIRMASI
+VMware Workstation 22.x üzerinde 5 adet sanal makine oluşturuldu.
+Tüm makineler için ortak donanım özellikleri aşağıdaki tabloda
+verilmiştir.
+ORTAK VM DONANIM AYARLARI
+İşletim Sistemi      : Ubuntu 26.04 LTS (Resolute Raccoon)
+ISO Dosyası          : ubuntu-26.04-live-server-amd64.iso
+CPU                  : 4 vCPU (1 socket × 4 cores)
+RAM                  : 4096 MB (4 GB)
+Disk                 : 20 GB dinamik VMDK (LSI Logic)
+Ağ Adaptörü          : Intel e1000, Bridged Mode
+Ekran Kartı          : VMware SVGA 3D, 256 MB VRAM
+USB Denetleyici      : Var (USB 2.0)
+Ses Kartı            : Var (auto-detect)
+2.2 AĞ MODU SEÇİMİ: BRIDGED (KÖPRÜ)
+Tüm sanal makineler için "Bridged" ağ modu seçilmiştir. Bu seçimin
+detaylı gerekçeleri:
+a) Doğrudan Ağ Erişimi: Her VM, fiziksel ağda bağımsız bir cihaz
+gibi görünür. Kendi MAC adresi ve IP adresine sahiptir. Bu,
+sunucuların birbirini doğrudan görmesini sağlar.
+b) Dış Erişim Kolaylığı: Geliştirme ve test aşamasında farklı
+bilgisayarlardan (farklı IP'lerden) erişim gerekmiştir.
+Bridged modda herhangi bir port yönlendirmeye gerek kalmaz.
+c) NAT Karmaşıklığının Önlenmesi: NAT modunda her VM için port
+yönlendirme (port forwarding) yapılandırması gerekir. 5 VM
+için bu yönetilemez hale gelebilir.
+d) Ağ Performansı: Bridged mod, NAT moduna göre daha düşük
+gecikme süresi sunar (ekstra paket işleme yoktur).
+Alternatifler ve Neden Kullanılmadıkları:
+- Host-Only: Dış ağdan erişim mümkün değil
+- Custom (VMnet): Gereksiz karmaşıklık, bridged yeterli
+2.3 HER VM İÇİN OLUŞTURMA ADIMLARI
+Adım 1: VMware Workstation → "Create a New Virtual Machine"
+Adım 2: "Installer disc image file (iso)" seçeneği ile
+ubuntu-26.04-live-server-amd64.iso dosyası gösterildi
+Adım 3: Guest OS: "Linux" → Version: "Ubuntu 64-bit"
+Adım 4: VM adı ve depolama konumu belirtildi:
+APP1, APP2, DPPOSTGRESQL, REDİS-SERVER, NFS-SERVER
+Adım 5: Disk: 20 GB, "Split virtual disk into multiple files"
+Adım 6: "Customize Hardware" butonu ile:
+- Memory: 4096 MB
+- Processors: 4 cores
+- Network Adapter: Bridged (Automatic)
+Adım 7: "Power on this virtual machine after creation" işaretlendi
+2.4 UBUNTU 26.04 LTS KURULUMU (TÜM VM'LER İÇİN)
+Her VM için Ubuntu Server 26.04 LTS kurulumu gerçekleştirildi.
+Kurulum Adımları:
+1. Dil Seçimi                    : English
+2. Klavye Düzeni                 : English (US)
+3. Kurulum Tipi                  : Ubuntu Server
+4. Ağ Bağlantısı                 : DHCP (geçici,
+sonra statik yapıldı)
+5. Proxy                         : Yok
+6. Mirror                        : tr.archive.ubuntu.com
+7. Disk Yapılandırması           : Use entire disk
+- LVM                         : Kullanılmadı
+8. Kullanıcı Hesabı              :
+- Kullanıcı adı               : voaxy
+- Sunucu adı                  : (her VM için farklı)
+- Şifre                       : 123456
+9. OpenSSH Server                : Kuruldu (işaretlendi)
+10. Snap Paketleri               : Hiçbiri seçilmedi
+2.5 KURULUM SONRASI TEMEL YAPILANDIRMA (TÜM VM'LER)
+Her VM'de kurulum tamamlandıktan sonra aşağıdaki temel sistem
+yapılandırmaları gerçekleştirildi:
+# Sistem güncelleme ve temel araçlar
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y vim curl wget git net-tools
+sudo apt install -y htop iotop iftop ncdu tree
+sudo apt install -y ufw fail2ban unattended-upgrades
+sudo timedatectl set-timezone Europe/Istanbul
+sudo localectl set-locale LANG=en_US.UTF-8
+3. GÜN 3: 17 HAZİRAN 2026 (ÇARŞAMBA)
+3.1 STATİK IP YAPILANDIRMASI (NETPLAN)
+Ubuntu 26.04'te ağ yapılandırması Netplan üzerinden yönetilmektedir.
+Her VM için /etc/netplan/00-installer-config.yaml dosyası
+düzenlenerek DHCP'ten statik IP'ye geçiş yapıldı.
+APP1 (10.10.13.26) için örnek netplan konfigürasyonu:
+network:
+version: 2
+ethernets:
+eth0:
+dhcp4: no
+addresses:
+- 10.10.13.26/24
+routes:
+- to: default
+via: 10.10.13.1
+nameservers:
+addresses: [8.8.8.8, 8.8.4.4]
+sudo netplan apply
+ip addr show eth0 | grep inet   # Doğrulama
+Tüm VM'ler için IP ataması:
+Tablo-3: 1. HAFTA: ALTYAPI KURULUMU
+APP1:	10.10.13.26/24,	gateway: 10.10.13.1
+APP2:	10.10.12.57/24,	gateway: 10.10.12.1
+DPPOSTGRESQL:	10.10.13.27/24,	gateway: 10.10.13.1
+REDİS-SERVER:	10.10.12.54/24,	gateway: 10.10.12.1
+NFS-SERVER:	10.10.13.28/24,	gateway: 10.10.13.1
+
+3.2 HOSTNAME VE DNS YAPILANDIRMASI
+Her VM'de hostname ayarlandı ve /etc/hosts dosyasına tüm
+sunucuların IP-hostname eşlemeleri eklendi.
+# Hostname ayarı (her VM'de)
+sudo hostnamectl set-hostname app1   # APP1 için
+sudo hostnamectl set-hostname app2   # APP2 için
+sudo hostnamectl set-hostname dppostgresql  # PostgreSQL
+sudo hostnamectl set-hostname redis-server    # Redis
+sudo hostnamectl set-hostname nfs-server      # NFS
+10.10.13.26    app1
+10.10.12.57    app2
+10.10.13.27    dppostgresql
+10.10.12.54    redis-server
+10.10.13.28    nfs-server
+3.3 SSH ANAHTAR TABANLI KİMLİK DOĞRULAMA
+Her VM'de SSH anahtar çifti oluşturuldu ve public key'ler diğer
+sunuculara dağıtıldı. Bu sayede şifresiz, güvenli bağlantı
+sağlandı.
+# SSH anahtar çifti oluştur (her VM'de)
+ssh-keygen -t ed25519 -C "stajyer@app1" -f ~/.ssh/id_ed25519
+ssh-copy-id -i ~/.ssh/id_ed25519.pub voaxy@app2
+ssh-copy-id -i ~/.ssh/id_ed25519.pub voaxy@dppostgresql
+ssh-copy-id -i ~/.ssh/id_ed25519.pub voaxy@redis-server
+ssh-copy-id -i ~/.ssh/id_ed25519.pub voaxy@nfs-server
+3.4 GÜVENLİK DUVARI (UFW) YAPILANDIRMASI
+sadece gerekli portlara erişim izni verildi.
+APP1 Güvenlik Duvarı:
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 22/tcp              # SSH
+sudo ufw allow 80/tcp              # HTTP (Moodle)
+sudo ufw allow 11434/tcp           # Ollama AI
+sudo ufw enable
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw enable
+sudo ufw allow 22/tcp
+sudo ufw allow from 10.10.13.26 to any port 5432 proto tcp
+sudo ufw allow from 10.10.12.57 to any port 5432 proto tcp
+sudo ufw enable
+sudo ufw allow 22/tcp
+sudo ufw allow from 10.10.13.26 to any port 6379 proto tcp
+sudo ufw allow from 10.10.12.57 to any port 6379 proto tcp
+sudo ufw enable
+4. GÜN 4: 18 HAZİRAN 2026 (PERŞEMBE)
+4.1 POSTGRESQL 18.4 KURULUMU (DPPOSTGRESQL - 10.10.13.27)
+PostgreSQL, resmi PostgreSQL APT reposundan en güncel sürüm (18.4)
+olarak kuruldu.
+# PostgreSQL Global Development Group reposu
+sudo apt install -y postgresql-common
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+sudo apt install -y postgresql-18 postgresql-client-18
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
+sudo systemctl status postgresql   # Doğrulama
+sudo -u postgres psql -c "SELECT version();"
+# on x86_64-pc-linux-gnu, compiled by gcc 15.2.0, 64-bit
+4.2 VERİTABANI VE KULLANICI OLUŞTURMA
+Moodle için özel bir veritabanı ve kullanıcı hesabı oluşturuldu.
+sudo -u postgres psql
+CREATE USER moodleuser WITH
+NOSUPERUSER NOCREATEDB NOCREATEROLE
+NOREPLICATION NOBYPASSRLS;
+-- Moodle veritabanı (UTF-8)
+CREATE DATABASE moodledb
+ENCODING 'UTF8'
+LC_COLLATE = 'en_US.UTF-8'
+LC_CTYPE = 'en_US.UTF-8'
+TEMPLATE template0;
+-- Yetkilendirme
+GRANT ALL PRIVILEGES ON DATABASE moodledb TO moodleuser;
+GRANT ALL ON SCHEMA public TO moodleuser;
+4.3 UZAKTAN BAĞLANTI YAPILANDIRMASI
+PostgreSQL'in varsayılan olarak sadece localhost'tan bağlantı
+kabul etmesi nedeniyle, uzak sunuculardan (APP1, APP2) erişim
+için iki yapılandırma dosyası düzenlendi.
+a) /etc/postgresql/18/main/postgresql.conf:
+# Bağlantı ayarları
+listen_addresses = '*'          # Tüm arayüzlerde dinle
+port = 5432                      # Standart port
+max_connections = 100            # Maksimum bağlantı
+shared_buffers = 512MB           # RAM'in ~%12'si
+effective_cache_size = 1536MB    # RAM'in ~%40'ı
+work_mem = 16MB                  # Sorgu başına çalışma
+maintenance_work_mem = 128MB     # Bakım işlemleri için
+random_page_cost = 1.1           # SSD için optimize
+effective_io_concurrency = 200   # SSD eşzamanlı I/O
+log_destination = 'stderr'
+logging_collector = on
+log_filename = 'postgresql-%a.log'  # Haftalık rotasyon
+log_truncate_on_rotation = on
+log_rotation_age = 1d
+log_rotation_size = 0
+Tablo-4: 1. HAFTA: ALTYAPI KURULUMU
+# TYPE	DATABASE	USER	ADDRESS	METHOD
+
+# Yerel bağlantılar (Unix socket)
+Tablo-5: 1. HAFTA: ALTYAPI KURULUMU
+local	all	all	peer
+
+# Localhost IPv4
+Tablo-6: 1. HAFTA: ALTYAPI KURULUMU
+host	all	all	127.0.0.1/32	scram-sha-256
+
+# APP1 Moodle erişimi (10.10.13.26)
+Tablo-7: 1. HAFTA: ALTYAPI KURULUMU
+host	all	all	10.10.13.26/32	scram-sha-256
+
+# APP2 Moodle erişimi (10.10.12.57)
+Tablo-8: 1. HAFTA: ALTYAPI KURULUMU
+host	moodledb	moodleuser 10.10.12.57/32 scram-sha-256
+
+Servis yeniden yüklendi:
+sudo systemctl reload postgresql
+4.4 ESKİ VERİTABANLARININ TEMİZLENMESİ
+veritabanları ve kullanıcı rolleri tespit edilerek temizlendi.
+sudo -u postgres psql
+DROP DATABASE IF EXISTS moodle;     # Eski Moodle DB
+DROP DATABASE IF EXISTS moodle_db;  # Eski yedek DB
+DROP USER IF EXISTS moodle_user;    # Eski kullanıcı
+\l                          # Veritabanı listesi
+\du                         # Kullanıcı rolleri
+\q
+pg_hba.conf dosyasındaki ilgili eski kurallar da kaldırıldı.
+4.5 NİHAİ POSTGRESQL DURUMU
+Veritabanı Sunucusu : 10.10.13.27:5432
+PostgreSQL Sürümü   : 18.4
+Aktif Veritabanı    : moodledb (485 tablo)
+Veritabanı Sahibi   : moodleuser
+Bağlantı Şifresi    : Moodle_123*
+Erişim Yetkisi      : APP1 (10.10.13.26), APP2 (10.10.12.57)
+5. GÜN 5: 19 HAZİRAN 2026 (CUMA)
+REDIS SUNUCUSU VE NFS DOSYA SUNUCUSU KURULUMU
+5.1 REDIS 8.0.5 KURULUMU (REDİS-SERVER - 10.10.12.54)
+Redis, bellek içi anahtar-değer veri yapısı sunucusudur. Moodle'da
+kullanıcı oturumlarının (session) ve uygulama önbelleğinin
+paylaşılması için kullanılacaktır.
+sudo apt update
+sudo apt install -y redis-server redis-tools
+sudo systemctl enable redis-server
+sudo systemctl start redis-server
+redis-cli INFO server | grep redis_version
+redis-cli INFO server | grep redis_mode
+5.2 REDIS KONFİGÜRASYONU
+/etc/redis/redis.conf dosyası Moodle kullanım senaryosuna uygun
+olarak optimize edildi:
+# AĞ AYARLARI
+bind 0.0.0.0                     # Tüm arayüzlerde dinle
+protected-mode no                # Korumalı mod kapalı
+port 6379                        # Standart Redis portu
+timeout 300                      # Boş bağlantı zaman aşımı
+tcp-keepalive 60                 # TCP keepalive aralığı
+maxmemory 512mb                  # Maksimum bellek kullanımı
+maxmemory-policy allkeys-lru     # LRU ile eski anahtar at
+save ""                          # Disk kalıcılığı KAPALI
+rename-command FLUSHDB ""        # Tehlikeli komutları
+rename-command FLUSHALL ""       # devre dışı bırak
+rename-command DEBUG ""
+rename-command CONFIG ""
+5.3 REDIS BAĞLANTI TESTİ
+redis-cli ping
+# Veri yazma/okuma testi
+redis-cli SET test "Merhaba Redis"
+redis-cli GET test
+redis-cli DEL test
+redis-cli -h 10.10.12.54 -p 6379 PING
+5.4 NFS DOSYA SUNUCUSU KURULUMU (NFS-SERVER)
+Moodle'ın kullanıcı dosyaları, önbellek ve diğer dinamik içerikleri
+sakladığı moodledata dizininin APP1 ve APP2 arasında paylaşılması
+için NFS (Network File System) sunucusu kuruldu.
+# NFS sunucu paketleri
+sudo apt update
+sudo apt install -y nfs-kernel-server nfs-common
+sudo mkdir -p /srv/moodledata
+sudo chown -R www-data:www-data /srv/moodledata
+sudo chmod 775 /srv/moodledata
+/srv/moodledata 10.10.0.0/16(rw,sync,no_subtree_check,
+no_root_squash)
+Parametre Açıklamaları:
+- rw              : Okuma ve yazma izni
+- sync            : Senkron yazma (veri bütünlüğü)
+- no_subtree_check: Alt dizin kontrolü yok (performans)
+- no_root_squash  : Root kullanıcısının yetkileri korunur
+- 10.10.0.0/16    : Her iki alt ağdan erişime izin
+sudo exportfs -a               # Paylaşımları aktif et
+sudo systemctl restart nfs-kernel-server
+showmount -e localhost         # Paylaşımları listele
+2. HAFTA: ENTEGRASYON VE SORUN GİDERME
+6. GÜN 6: 22 HAZİRAN 2026 (PAZARTESİ)
+6.1 DOCKER VE DOCKER COMPOSE KURULUMU (APP1)
+# Docker resmi reposundan kurulum
+sudo apt update
+sudo apt install -y docker.io docker-compose-v2
+sudo usermod -aG docker voaxy
+newgrp docker
+sudo systemctl enable docker
+sudo systemctl start docker
+docker --version               # Doğrulama
+docker run hello-world          # Test
+6.2 MOODLE DOCKER PROJE DİZİNİ
+mkdir -p /home/voaxy/moodle-docker
+cd /home/voaxy/moodle-docker
+mkdir moodle moodledata
+6.3 MOODLE 4.4 İNDİRME VE KURULUM
+cd /tmp
+wget https://download.moodle.org/download.php/
+tar xzf moodle-latest-404.tgz
+cp -r moodle/* /home/voaxy/moodle-docker/moodle/
+6.4 DOCKER-COMPOSE.YML OLUŞTURMA
+services:
+moodle:
+build: .                     # Dockerfile'dan build
+image: moodle-custom:latest  # Özel imaj
+container_name: moodle-docker-moodle-1
+ports:
+- "80:80"                 # Host:Container port
+volumes:
+- ./moodle:/var/www/html  # Moodle kaynak kodları
+- ./moodledata:/var/www/  # Moodle veri dizini
+moodledata
+environment:
+MOODLE_DOCKER_DBTYPE: pgsql
+MOODLE_DOCKER_DBHOST: 10.10.13.27
+MOODLE_DOCKER_DBNAME: moodledb
+MOODLE_DOCKER_DBUSER: moodleuser
+MOODLE_DOCKER_DBPASS: Moodle_123*
+MOODLE_DOCKER_DBPORT: 5432
+restart: always            # Her durumda yeniden başlat
+6.5 MOODLE config.php OLUŞTURMA
+/home/voaxy/moodle-docker/moodle/config.php:
+<?php
+unset($CFG);
+global $CFG;
+$CFG->dbtype    = 'pgsql';
+$CFG->dblibrary = 'native';
+$CFG->dbhost    = '10.10.13.27';
+$CFG->dbname    = 'moodledb';
+$CFG->dbuser    = 'moodleuser';
+$CFG->dbpass    = 'Moodle_123*';
+$CFG->prefix    = 'mdl_';
+$CFG->dboptions = array('dbpersist' => 0,
+'dbport' => 5432, 'dbsocket' => '');
+$CFG->wwwroot   = 'http://10.10.13.26';
+$CFG->dataroot  = '/var/www/moodledata';
+$CFG->admin     = 'admin';
+$CFG->directorypermissions = 0777;
+// Redis Session
+$CFG->session_handler_class = '\core\session\redis';
+$CFG->session_redis_host = '10.10.12.54';
+$CFG->session_redis_port = 6379;
+$CFG->session_redis_auth = '';
+$CFG->session_redis_database = 0;
+require_once(__DIR__ . '/lib/setup.php');
+6.6 KONTEYNERİ BAŞLATMA
+cd /home/voaxy/moodle-docker
+docker-compose up -d
+docker ps                     # Konteyner kontrolü
+docker logs moodle-docker-moodle-1  # Log kontrolü
+7. GÜN 7: 23 HAZİRAN 2026 (SALI)
+Bu gün, 18 Haziran tarihli KUTAY_RAPOR'da detaylandırılan APP1
+entegrasyon çalışmalarının devamı niteliğindedir.
+7.1 MEVCUT DURUM ANALİZİ
+Moodle konteyneri çalışıyor ancak veritabanına ve Redis'e
+bağlanamıyordu. Yapılan incelemelerde aşağıdaki sorunlar tespit
+edildi:
+Sorun 1 - Eski Ağ IP'leri:
+docker-compose.yml ve config.php dosyalarında 192.168.126.x
+bu IP'ler tamamen geçersizdi.
+Sorun 2 - Eksik pdo_pgsql Eklentisi:
+Docker konteyner içinde PHP'nin PostgreSQL bağlantısı için
+Moodle, PostgreSQL bağlantısı için bu eklentiye zorunlu olarak
+ihtiyaç duymaktadır.
+Sorun 3 - Redis Adresi:
+config.php'de Redis adresi eski ağa ait 192.168.126.132 olarak
+tanımlıydı. Dış IP'den gelen istekler Redis bağlantı hatası
+(Connection timed out) veriyordu.
+7.2 config.php VE docker-compose.yml GÜNCELLEMESİ
+# config.php parametre güncellemeleri:
+Tablo-9: 2. HAFTA: ENTEGRASYON VE SORUN GİDERME
+dbhost:	192.168.126.131	→ 10.10.13.27
+dbpass:	Moodle.123*	→ Moodle_123*
+wwwroot:	http://192.168.	→ http://10.10.13.26
+
+126.129
+session_redis_host: 192.168.126.132  → 10.10.12.54
+Aynı değişiklikler docker-compose.yml ortam değişkenlerine
+de uygulandı.
+7.3 pdo_pgsql EKLENTİSİNİN KURULUMU VE DOCKERFILE OLUŞTURMA
+Konteyner içinde geçici kurulum:
+docker exec -it moodle-docker-moodle-1 bash
+apt-get update && apt-get install -y libpq-dev
+docker-php-ext-install pdo_pgsql
+php -m | grep pdo_pgsql  # Doğrulama
+FROM moodlehq/moodle-php-apache:8.2
+apt-get install -y libpq-dev && \
+docker-php-ext-install pdo_pgsql && \
+apt-get clean && \
+Dockerfile katman açıklamaları:
+- RUN 1: PostgreSQL C kütüphanesi başlık dosyalarını kurar
+- RUN 2: PHP PDO PostgreSQL eklentisini derler ve kurar
+- RUN 3: İmaj boyutunu küçültmek için geçici dosyaları temizler
+7.4 ÖZEL İMAJIN BUILD EDİLMESİ VE KONTEYNERİN YENİDEN BAŞLATILMASI
+cd /home/voaxy/moodle-docker
+docker-compose build           # Özel imajı oluştur
+docker-compose down            # Eski konteyneri durdur
+docker-compose up -d           # Yeni imajla başlat
+7.5 BAĞLANTI TESTLERİ
+docker exec moodle-docker-moodle-1 php -r "
+try {
+new PDO('pgsql:host=10.10.13.27;port=5432;dbname=
+echo 'OK';
+echo 'ERROR: '.\$e->getMessage();
+# Sonuç: OK
+Redis bağlantı testi:
+timeout 3 bash -c "echo > /dev/tcp/10.10.12.54/6379" \
+# Sonuç: Redis OK
+Moodle web erişim testi:
+curl -sI --connect-timeout 5 http://10.10.13.26
+# Set-Cookie: MoodleSession=...
+8. GÜN 8: 24 HAZİRAN 2026 (ÇARŞAMBA)
+APP2 NATIVE APACHE MOODLE KURULUMU VE YAPILANDIRMASI
+8.1 APACHE VE PHP KURULUMU (APP2 - 10.10.12.57)
+APP2, APP1'den farklı olarak Docker kullanılmadan doğrudan
+Apache + PHP üzerinde çalışacak şekilde yapılandırıldı.
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y apache2
+sudo apt install -y php8.2 php8.2-cli php8.2-common
+sudo apt install -y php8.2-pgsql php8.2-redis
+sudo apt install -y php8.2-xml php8.2-mbstring
+sudo apt install -y php8.2-curl php8.2-gd
+sudo apt install -y php8.2-zip php8.2-intl
+sudo apt install -y php8.2-soap php8.2-xmlrpc
+sudo apt install -y libapache2-mod-php8.2
+sudo a2enmod rewrite headers ssl
+sudo systemctl restart apache2
+8.2 PHP YAPILANDIRMASI
+memory_limit = 256M
+max_execution_time = 120
+post_max_size = 100M
+upload_max_filesize = 100M
+max_input_vars = 5000
+date.timezone = Europe/Istanbul
+opcache.enable = 1
+opcache.memory_consumption = 256
+opcache.max_accelerated_files = 10000
+opcache.revalidate_freq = 60
+8.3 MOODLE 4.3 KURULUMU
+cd /tmp
+wget https://download.moodle.org/download.php/
+sudo tar xzf moodle-latest-403.tgz -C /var/www/html/
+sudo mv /var/www/html/moodle /var/www/html/moodle
+sudo chown -R www-data:www-data /var/www/html/moodle
+8.4 APACHE VIRTUALHOST YAPILANDIRMASI
+<VirtualHost *:80>
+ServerName 10.10.12.57
+DocumentRoot /var/www/html/moodle
+<Directory /var/www/html/moodle>
+Options FollowSymLinks
+AllowOverride All
+Require all granted
+ErrorLog ${APACHE_LOG_DIR}/moodle_error.log
+CustomLog ${APACHE_LOG_DIR}/moodle_access.log combined
+</VirtualHost>
+8.5 APP2 config.php
+$CFG->dbtype    = 'pgsql';
+$CFG->dbhost    = '10.10.13.27';
+$CFG->dbname    = 'moodledb';
+$CFG->dbuser    = 'moodleuser';
+$CFG->dbpass    = 'Moodle_123*';
+$CFG->dboptions = array('dbport' => 5432);
+$CFG->wwwroot   = 'http://10.10.12.57';
+$CFG->dataroot  = '/var/www/moodledata';
+$CFG->session_handler_class = '\core\session\redis';
+$CFG->session_redis_host = '10.10.12.54';
+9. GÜN 9: 25 HAZİRAN 2026 (PERŞEMBE)
+APP2 "DATABASE CONNECTION FAILED" HATASI VE ÇÖZÜMÜ
+Bu gün, 25 Haziran 2026 tarihli ayrıntılı raporda belgelenen
+kritik ağ sorununun çözümüne ayrılmıştır.
+9.1 PROBLEM TANIMI
+APP2 üzerinde çalışan Moodle uygulaması, "Database Connection
+Failed" hatası vererek kullanıcılara hizmet sunamıyordu. Hata
+mesajı:
+"Error: Database connection failed. It is possible that the
+database is overloaded or otherwise not running properly."
+9.2 SORUN 1: APACHE PORT 80 ÇAKIŞMASI
+Tespit: Host makinede ç wake upalışan Apache servisi, Docker
+konteynerinin kullandığı 80 numaralı portu işgal etmeye
+çalışıyordu.
+Log:
+(98)Address already in use: AH00072: make_sock:
+could not bind to address 0.0.0.0:80
+no listening sockets available, shutting down
+Çözüm:
+sudo systemctl stop apache2
+sudo systemctl disable apache2
+9.3 SORUN 2: DOCKER KONTEYNER AĞ ARIZASI (ANA SORUN)
+"NetworkSettings": {
+"Networks": {}                    ← BOŞ!
+}
+Konteyner hiçbir ağ arayüzüne sahip değildi. Sadece loopback
+(lo) arayüzü mevcuttu, eth0 oluşmamıştı.
+Kök Neden: Docker konteyner başlatılırken ağ sürücüsü düzgün
+yapılandırılamamış, eth0 arayüzü oluşturulamamıştı. docker
+restart komutu da "permission denied" hatası veriyordu.
+ÇÖZÜM: MANUEL AĞ KURULUMU (nsenter + veth + iptables)
+Bu, düşük seviyeli Linux ağ araçları kullanılarak
+gerçekleştirilen ileri düzey bir müdahaledir.
+Adım 1: Yeni Docker bridge ağı
+docker network create --subnet=172.20.0.0/16 moodle-fix
+ip link add veth_m0 type veth peer name veth_m1
+(veth_m1) olacak sanal bir ağ kablosu.
+Adım 3: Konteyner namespace'ine taşıma
+ip link set veth_m1 netns 4624   # 4624 = konteyner PID
+ip link set veth_m0 master br-d7ddbb44ea7c
+ip link set veth_m0 up
+nsenter -t 4624 -n ip addr add 172.20.0.10/16 dev veth_m1
+nsenter -t 4624 -n ip link set veth_m1 up
+nsenter -t 4624 -n ip route add default via 172.20.0.1
+iptables -t nat -A PREROUTING -p tcp --dport 80 \
+iptables -t nat -A POSTROUTING -s 172.20.0.0/16 \
+iptables -A FORWARD -i br-d7ddbb44ea7c -j ACCEPT
+iptables -A FORWARD -o br-d7ddbb44ea7c -j ACCEPT
+9.4 SORUN 3: VERİTABANI PORT TANIMI
+string ('') olarak tanımlanmıştı.
+Çözüm:
+$CFG->dboptions = array(
+'dbpersist' => 0, 'dbport' => 5432, 'dbsocket' => ''
+);
+9.5 DOĞRULAMA
+# Veritabanı bağlantısı
+docker exec moodle-docker-moodle-1 \
+# 1 packets transmitted, 1 received, 0% loss
+# Web erişimi
+curl -sI http://10.10.13.26
+10. GÜN 10: 26 HAZİRAN 2026 (CUMA)
+NFS MOUNT VE DOSYA SİSTEMİ ENTEGRASYONU
+10.1 APP1 VE APP2'DE NFS MOUNT
+# NFS istemci paketi
+sudo apt install -y nfs-common
+sudo mkdir -p /var/www/moodledata
+sudo chown www-data:www-data /var/www/moodledata
+sudo mount -t nfs 10.10.13.28:/srv/moodledata \
+Kalıcı mount için /etc/fstab:
+Tablo-10: 2. HAFTA: ENTEGRASYON VE SORUN GİDERME
+10.10.13.28:/srv/moodledata	/var/www/moodledata	nfs \
+defaults,_netdev	0	0
+
+_netdev seçeneği: Ağ bağlantısı kurulana kadar mount işlemini
+erteler. Sistem başlangıcında ağ henüz hazır değilse hata
+alınmasını önler.
+10.2 PAYLAŞIMLI MİMARİ DOĞRULAMASI
+APP1'de test dosyası oluştur:
+sudo -u www-data touch /var/www/moodledata/test_nfs.txt
+ls -la /var/www/moodledata/test_nfs.txt
+3. HAFTA: MOODLE 4.5 YÜKSELTME VE AI
+11. GÜN 11: 29 HAZİRAN 2026 (PAZARTESİ)
+MOODLE 4.5 YÜKSELTME HAZIRLIĞI VE VERİTABANI YEDEKLEME
+11.1 MEVCUT DURUM TESPİTİ
+Tablo-11: 2. HAFTA: ENTEGRASYON VE SORUN GİDERME
+Sunucu	Sürüm	Kurulum Tipi
+
+Tablo-12: 2. HAFTA: ENTEGRASYON VE SORUN GİDERME
+APP1	4.4.12+	Docker (moodle-custom)
+APP2	4.3.11+	Native Apache/PHP
+Veritabanı	moodledb	PostgreSQL 18.4, 485 tbl
+
+11.2 YÜKSELTME STRATEJİSİ
+APP1 ve APP2 aynı veritabanını paylaştığı için yükseltme
+sırası kritik öneme sahiptir. Veritabanı migration işlemi
+sadece BİR KEZ, ilk yükseltilen sunucuda çalışacaktır.
+Adım 1: Her iki siteyi bakım moduna al
+Adım 2: Veritabanı tam yedeğini al
+Adım 3: APP1 kodunu 4.5 ile değiştir
+Adım 4: APP1'de upgrade çalıştır → DB migration otomatik
+Adım 5: APP2 kodunu 4.5 ile değiştir
+Adım 6: APP2'de upgrade çalıştır → "Already up to date"
+Adım 7: Test et ve bakım modundan çıkar
+11.3 VERİTABANI YEDEKLEME
+# DPPOSTGRESQL üzerinde
+sudo -u postgres pg_dump moodledb > \
+# Yedek doğrulama
+ls -lh /tmp/moodledb_backup_20260629_140000.sql
+# Yedek başlık kontrolü
+head -20 /tmp/moodledb_backup_*.sql
+11.4 BAKIM MODUNA ALMA
+docker exec moodle-docker-moodle-1 php \
+# → "Your site is currently in CLI maintenance mode"
+# APP2
+sudo -u www-data php \
+--enable
+12. GÜN 12: 30 HAZİRAN 2026 (SALI)
+APP1 MOODLE 4.4 → 4.5 YÜKSELTME (DOCKER)
+12.1 MOODLE 4.5 İNDİRME VE ÇIKARMA
+cd /tmp
+curl -L -o moodle-4.5.tgz \
+direct/stable405/moodle-latest-405.tgz'
+# İndirilen: 72 MB
+# Sürüm: 4.5.12+ (Build: 20260630)
+tar xzf moodle-4.5.tgz
+12.2 DOCKER BIND-MOUNT KORUMALI YERİNDE GÜNCELLEME
+Docker bind-mount yapısı nedeniyle, moodle dizini direkt olarak
+noktasının eski inode'unu takip etmeye devam eder. Bu nedenle
+rsync ile "in-place" (yerinde) güncelleme yapıldı.
+cd /home/voaxy/moodle-docker
+sudo cp moodle/config.php /tmp/cfg_backup.php
+#    --exclude='/config.php': sadece kök config.php'yi koru
+sudo rsync -av --delete \
+/tmp/moodle/ \
+/home/voaxy/moodle-docker/moodle/
+# 3. config.php'yi geri yükle
+sudo cp /tmp/cfg_backup.php moodle/config.php
+sudo chown -R www-data:www-data moodle/
+12.3 KARŞILAŞILAN SORUN: rsync --exclude HATALI EŞLEŞME
+kullanıldı. Bu kalıp, dizin yolunu ayırt etmeden TÜM
+config.php dosyalarını eşleştirdi. cache/classes/config.php
+gibi kritik Moodle dosyaları güncellenmedi.
+Hata: "Class core_cache\config not found"
+Nedeni: Moodle 4.4'te namespace olmadan "cache_config" sınıfı,
+Moodle 4.5'te "namespace core_cache" altında "config"
+sınıfı. Eski dosya kalınca namespace uyuşmazlığı oldu.
+Çözüm: --exclude='/config.php' ile sadece kök dizindeki
+config.php'yi hariç tut (baştaki / ile).
+12.4 VERİTABANI MIGRATION
+docker exec moodle-docker-moodle-1 php \
+Sonuç:
+Command line upgrade from 4.4.12+ (Build: 20251212)
+(2024042212.01) to 4.5.12+ (Build: 20260630)
+(2024100712.03) completed successfully.
+Yeni ayarlar (otomatik oluşturulanlar - 40+ yeni setting):
+- aiprovider_openai/*, aiprovider_azureai/*
+- geoip*, mod_assign/defaultgradetype
+- factor_sms/smsgateway
+- tiny_recordrtc/*, file_redactor/*
+- enablesharingtomoodlenet
+- ve daha fazlası...
+13. GÜN 13: 01 TEMMUZ 2026 (ÇARŞAMBA)
+APP2 MOODLE 4.3 → 4.5 YÜKSELTME
+13.1 APP2 YÜKSELTME
+# Moodle 4.5 indir
+cd /tmp && curl -L -o moodle-4.5.tgz \
+direct/stable405/moodle-latest-405.tgz'
+tar xzf moodle-4.5.tgz
+sudo cp /var/www/html/moodle/config.php \
+# Güncelle
+sudo rsync -av --delete --exclude='/config.php' \
+sudo cp /tmp/cfg_app2.php /var/www/html/moodle/config.php
+sudo chown -R www-data:www-data /var/www/html/moodle
+13.2 UPGRADE SONUCU
+4.5.12+ (Build: 20260630) (2024100712.03).
+Thanks for coming anyway!
+Bu sonuç, paylaşımlı veritabanı mimarisinin doğru çalıştığını
+kanıtlar. DB migration APP1'de bir kez yapıldı, APP2 sadece
+kod güncellemesiyle yeni sürüme geçti.
+13.3 BAKIM MODUNDAN ÇIKMA
+# APP1
+docker exec moodle-docker-moodle-1 php \
+# APP2
+sudo -u www-data php \
+--disable
+14. GÜN 14: 02 TEMMUZ 2026 (PERŞEMBE)
+OLLAMA YAPAY ZEKA KURULUMU
+14.1 OLLAMA NEDEN SEÇİLDİ?
+- Tamamen yerel çalışır, veri gizliliği sağlar (hiçbir veri
+dışarı gönderilmez)
+- OpenAI API ile uyumlu REST endpoint sunar (/v1/chat/completions)
+- Tek komutla kurulum (curl | sh)
+- CPU-only modda da çalışabilir (GPU zorunlu değil)
+- Modelleri kolayca indirme/güncelleme/silme
+- Açık kaynak, ücretsiz
+- Türkçe dil desteği (llama3.2 çok dilli)
+14.2 OLLAMA KURULUMU
+curl -fsSL https://ollama.com/install.sh | sh
+- Binary: /usr/local/bin/ollama
+- Servis: /etc/systemd/system/ollama.service
+- API: http://127.0.0.1:11434
+- Durum: active (running), CPU-only (GPU yok)
+14.3 MODEL SEÇİMİ VE İNDİRME
+16GB RAM (ideal) ve CPU-only konfigürasyon için önerilen
+modeller karşılaştırıldı:
+Tablo-13: 2. HAFTA: ENTEGRASYON VE SORUN GİDERME
+Model	Boyut	RAM İht.	CPU Yanıt Süresi
+
+Tablo-14: 2. HAFTA: ENTEGRASYON VE SORUN GİDERME
+llama3.2:1b	~600 MB	~1.2 GB	5-15 saniye	
+llama3.2:3b	✓	2.0 GB	~2.8 GB	15-45 saniye
+mistral:7b	4.1 GB	~6 GB	60+ saniye	
+llama3.1:8b	4.7 GB	~7 GB	Çalışmayabilir	
+
+Seçim: llama3.2:3b — en iyi performans/boyut dengesi
+ollama pull llama3.2:3b
+# İndirme: ~2 GB, birkaç dakika
+ollama list
+Tablo-15: 2. HAFTA: ENTEGRASYON VE SORUN GİDERME
+# llama3.2:3b	a80c4f17acd5	2.0 GB
+
+Model testi:
+ollama run llama3.2:3b \
+"Merhaba, Türkçe konuşabiliyor musun?"
+Cevap: "Evet, Türkçe conversation yapabilirim.
+Nerede başlayabiliriz?"
+14.4 OLLAMA AĞ ERİŞİMİ YAPILANDIRMASI
+Varsayılan olarak Ollama sadece 127.0.0.1:11434 dinler.
+Docker konteynerlerin erişebilmesi için tüm arayüzlerde
+/etc/systemd/system/ollama.service:
+[Service]
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+curl http://10.10.13.26:11434/api/tags
+15. GÜN 15: 03 TEMMUZ 2026 (CUMA)
+MOODLE AI ENTEGRASYONU — PROVIDER YAPILANDIRMASI
+15.1 KULLANILAN YÖNTEM
+Ollama, OpenAI API ile uyumlu bir REST API sunar. Bu sayede
+Moodle'ın yerleşik OpenAI provider'ı doğrudan Ollama'ya
+yönlendirilebilir. Ayrı bir eklenti kurulumu gerekmez.
+Ollama OpenAI Uyumlu Endpoint:
+http://10.10.13.26:11434/v1/chat/completions
+15.2 PROVIDER YAPILANDIRMASI (VERİTABANI config_plugins)
+Aşağıdaki ayarlar veritabanına doğrudan eklendi:
+aiprovider_openai/enabled = 1
+aiprovider_openai/apikey = "ollama"
+aiprovider_openai/generate_text = 1
+aiprovider_openai/summarise_text = 1
+aiprovider_openai/generate_image = 0    # llama3.2 yok
+action_generate_text_model = "llama3.2:3b"
+action_generate_text_endpoint =
+"http://10.10.13.26:11434/v1/chat/completions"
+action_summarise_text_model = "llama3.2:3b"
+action_summarise_text_endpoint =
+"http://10.10.13.26:11434/v1/chat/completions"
+15.3 TINYMCE EDİTÖR ENTEGRASYONU
+editor_tiny/enableai = 1
+aiplacement_editor/enabled = 1
+aiplacement_editor/generate_text = 1
+15.4 cURL GÜVENLİK DUVARI AYARI (KRİTİK)
+Moodle'ın yerleşik cURL güvenlik mekanizması, varsayılan
+olarak 10.0.0.0/8 CIDR bloğundaki tüm IP'lere bağlantıyı
+ENGELLER. Ayrıca sadece 80 ve 443 portlarına izin verir.
+Bu politikaların amacı SSRF (Server-Side Request Forgery)
+saldırılarını önlemektir. Ancak Ollama 10.10.13.26:11434
+adresinde olduğu için bağlantılar engelleniyordu.
+Çözüm (iki seviyede):
+a) Veritabanı admin ayarları (core config tablosu):
+curlsecurityblockedhosts: 10.0.0.0/8 satırı SİLİNDİ
+curlsecurityallowedport: 11434 EKLENDİ (eskiden 80,443)
+$CFG->curlsecurityblockedhosts = '';
+$CFG->curlsecurityallowedport = '80,443,11434';
+4. HAFTA: TEST, SORUN GİDERME VE TESLİM
+16. GÜN 16: 06 TEMMUZ 2026 (PAZARTESİ)
+AI ENTEGRASYONU SORUN GİDERME — 5 AŞAMALI ÇÖZÜM
+16.1 PROBLEM: "SOMETHING WENT WRONG"
+AI butonu editörde görünüyor ancak Generate text tıklandığında
+"Something went wrong. Try again later" hatası alınıyordu.
+16.2 KÖK NEDEN ANALİZİ: 5 AŞAMALI SORUN ZİNCİRİ
+1    OLLAMA DİNLEME ADRESİ
+Hata Docker container'dan 127.0.0.1:11434 → container'ın
+KENDİ loopback'i, host'taki Ollama değil
+"Connection refused"
+Çöz. OLLAMA_HOST=0.0.0.0, tüm arayüzlerde dinle
+2    ENDPOINT EKSİKLİĞİ
+Hata Endpoint: /v1 olarak ayarlanmıştı, Ollama
+/v1/chat/completions bekliyor
+/v1 POST isteğine yanıt vermiyor
+Çöz. Endpoint: .../v1/chat/completions (tam yol)
+3    ACTION KEY ADLANDIRMA HATASI
+Hata Config key: action_generate_text_enabled
+Moodle kaynak kodu (manager.php:262):
+is_action_enabled() metodu get_basename() ile sadece
+"generate_text" stringini okuyor
+→ action_generate_text_enabled HİÇ OKUNMUYOR
+Çöz. Config key: "generate_text" olarak değiştirildi
+Kod kanıtı (ai/classes/manager.php satır 262-271):
+public static function is_action_enabled(
+): bool {
+$value = get_config(
+$plugin,
+$actionclass::get_basename()  // "generate_text" döner
+);
+if ($value === false) return true;  // varsayılan: açık
+return (bool) $value;
+4    cURL GÜVENLİK ENGELİ (ANA SORUN)
+Hata "The URL is blocked" - Moodle 10.0.0.0/8 CIDR
+bloğunu engelliyor, 10.10.13.26 bu aralıkta
+→ SSRF koruması OLLAMA'YI DA ENGELLİYOR
+Tesp. curl_security_helper::url_is_blocked() false dönmeli
+Çöz. Blocked hosts: 10.0.0.0/8 silindi
+Allowed ports: 11434 eklendi
+5    generate_image UYUMSUZLUĞU
+Hata generate_image OpenAI'ın gerçek API'sine gidiyordu
+→ 401 "Incorrect API key provided: ollama"
+Çöz. generate_image = 0 (llama3.2 görüntü üretemez)
+16.3 DEBUG YÖNTEMLERİ
+Sorun tespitinde kullanılan debug yöntemleri:
+1. Moodle Debug Modu:
+set_config('debug', 32767, 'core');     # DEVELOPER
+set_config('debugdisplay', 1, 'core');  # Ekranda göster
+ai_action_register tablosu → generate_image: 401 error
+logstore_standard_log → core/failed event'leri
+3. Kaynak Kod İncelemesi:
+- ai/placement/editor/classes/utils.php
+- ai/classes/manager.php
+- ai/provider/openai/classes/abstract_processor.php
+- ai/provider/openai/classes/process_generate_text.php
+- lib/editor/tiny/plugins/aiplacement/
+4. Doğrudan API Testi:
+POST http://10.10.13.26:11434/v1/chat/completions
+{"model":"llama3.2:3b","messages":[...]}
+→ HTTP 200, "Merhaba!"
+5. curl_security_helper Kontrolü:
+url_is_blocked() metodu ile URL engel durumu test edildi
+17. GÜN 17: 07 TEMMUZ 2026 (SALI)
+TEST KURSU VE AI DOĞRULAMA TESTLERİ
+17.1 TEST KURSU OLUŞTURMA
+Moodle CLI aracı developer mod gerektirdiği için, PHP script
+ile doğrudan veritabanına insert yapılarak "Deneme 1234" kursu
+oluşturuldu:
+<?php
+define('CLI_SCRIPT', true);
+require('/var/www/html/config.php');
+global $DB;
+$c->fullname = 'Deneme 1234';
+$c->shortname = 'deneme1234';
+$c->category = 1;
+$c->format = 'topics';
+$c->visible = 1;
+$c->startdate = time();
+$id = $DB->insert_record('course', $c);
+echo "Kurs ID: $id\n";
+echo "URL: $CFG->wwwroot/course/view.php?id=$id\n";
+17.2 TEST BİLGİLERİ
+Kurs Adı      : Deneme 1234
+Kurs ID       : 3
+APP1 URL      : http://10.10.13.26/course/view.php?id=3
+APP2 URL      : http://10.10.12.57/course/view.php?id=3
+Admin Kull.   : admin / Admin_123*
+17.3 AI TEST PROSEDÜRÜ
+Adım 1: http://10.10.13.26/course/view.php?id=3
+Adım 2: "Turn editing on"
+Adım 3: "Add an activity or resource" → "Page"
+Adım 4: ⭐ AI Assistant butonu → "Generate text"
+Adım 5: Prompt gir → "Moodle nedir? Kısaca açıkla."
+Adım 6: Generate tıkla → 30-60 saniye bekle
+Adım 7: Ollama yanıtı görüntülenir
+17.4 BAŞARILI API TEST SONUCU
+REQUEST:
+POST /v1/chat/completions
+Host: 10.10.13.26:11434
+Authorization: Bearer ollama
+{"model":"llama3.2:3b","messages":[{"role":"user",
+"content":"Say hello in Turkish"}]}
+RESPONSE: HTTP 200 OK
+{"choices":[{"message":{"content":"Merhaba!
+(mehr-hah-bah)"}}]}
+17.5 CURL GÜVENLİK TESTİ
+# Test: URL engelleniyor mu?
+require_once($CFG->libdir . '/filelib.php');
+echo $helper->url_is_blocked(
+) ? 'BLOCKED' : 'ALLOWED';
+Sonuç: ALLOWED ✓
+18. GÜN 18: 08 TEMMUZ 2026 (ÇARŞAMBA)
+PERFORMANS ANALİZİ VE OPTİMİZASYON
+18.1 SİSTEM KAYNAK KULLANIMI
+Tablo-16: 4. HAFTA: TEST, SORUN GİDERME VE TESLİM
+Sunucu	CPU	RAM	Özel Kullanım
+
+Tablo-17: 4. HAFTA: TEST, SORUN GİDERME VE TESLİM
+APP1	4 vCPU	3.3 GB	Docker + Ollama (~2.5 GB)
+APP2	4 vCPU	~4 GB	Apache + PHP
+PG SQL	4 vCPU	~4 GB	PostgreSQL
+Redis	4 vCPU	~4 GB	Redis
+NFS	4 vCPU	~4 GB	NFS
+
+APP1 bellek durumu:
+Toplam RAM    : 3.3 GB
+Kullanılan    : ~2.8 GB (Ollama model: ~2 GB, sistem: ~800M)
+Boş           : ~500 MB
+Swap          : 3.8 GB (kullanım: 0)
+Durum         : SINIRDA, 16 GB'a yükseltme önerilir
+18.2 AI PERFORMANS DEĞERLENDİRMESİ
+Metrik               Değer
+Model                llama3.2:3b
+Parametre Sayısı     3.2 milyar
+RAM Kullanımı        ~2.0 GB (model) + ~500 MB (context)
+CPU Yanıt Süresi     30-60 saniye (kısa prompt)
+GPU Olsaydı          2-5 saniye (tahmini)
+Token/Saniye (CPU)   ~3-5 token/sn
+18.3 OPTİMİZASYON ÖNERİLERİ
+a) APP1 RAM Yükseltme (Öncelik: YÜKSEK):
+Mevcut 4 GB → 16 GB. Model için yeterli bellek alanı
+sağlar, swap kullanımını önler, yanıt sürelerini iyileştirir.
+b) GPU Desteği (Öncelik: ORTA):
+NVIDIA RTX 3060 12GB veya benzeri bir GPU ile yanıt
+süresi 30-60 sn → 2-5 sn'ye düşer.
+c) PostgreSQL Optimizasyonu:
+shared_buffers = 1GB          # RAM'in %25'i
+effective_cache_size = 3GB    # RAM'in %75'i
+work_mem = 32MB               # Sorgu başına
+maintenance_work_mem = 256MB  # VACUUM için
+random_page_cost = 1.1        # SSD için
+opcache.memory_consumption = 256
+opcache.max_accelerated_files = 10000
+opcache.revalidate_freq = 60
+opcache.validate_timestamps = 1
+<IfModule mpm_prefork_module>
+StartServers       5
+MinSpareServers    5
+MaxSpareServers   10
+MaxRequestWorkers 50
+MaxConnectionsPerChild 1000
+</IfModule>
+19. GÜN 19: 09 TEMMUZ 2026 (PERŞEMBE)
+GÜVENLİK DENETİMİ VE İYİLEŞTİRMELER
+19.1 GÜVENLİK DURUM DEĞERLENDİRMESİ
+Tablo-18: 4. HAFTA: TEST, SORUN GİDERME VE TESLİM
+Güvenlik Unsuru	Durum	Öneri
+
+UFW (Güvenlik Duvarı) AKTİF     Kurallar gözden geçirildi
+Tablo-19: 4. HAFTA: TEST, SORUN GİDERME VE TESLİM
+PostgreSQL Uzak	KISITLI	Sadece APP1/APP2 IP'leri
+Redis Kimlik Doğr.	YOK ⚠	requirepass eklenmeli
+Ollama Dış Erişim	AÇIK ⚠	Sadece localhost/container
+Moodle Debug	GELİŞTİR.	Üretimde kapatılmalı
+SSL/TLS	YOK ⚠	HTTPS yapılandırılmalı
+
+19.2 REDİS PAROLA KORUMASI
+Mevcut durumda Redis'te parola tanımlı değildir. Üretim
+ortamına geçişte aşağıdaki yapılandırma önerilir:
+# /etc/redis/redis.conf
+requirepass "GucluRedisParola2026!"
+$CFG->session_redis_auth = 'GucluRedisParola2026!';
+19.3 OLLAMA ERİŞİM KISITLAMASI
+Ollama şu anda 0.0.0.0:11434'te dinliyor (tüm arayüzler).
+Üretim ortamında sadece localhost'tan erişilecek şekilde
+kısıtlanması önerilir. Docker container'lar host ağı üzerinden
+bağlanabileceği için bu yeterlidir.
+# /etc/systemd/system/ollama.service
+Environment="OLLAMA_HOST=127.0.0.1"  # Sadece localhost
+Bu durumda Moodle OpenAI provider endpoint'i şu şekilde
+değiştirilmelidir:
+# Container, host ağı üzerinden localhost'a erişebilir
+# Bunun için container host network modunda olmalı
+# Alternatif: container'ın gateway IP'si (172.19.0.1)
+19.4 DEBUG MODU KAPATMA (ÜRETİM İÇİN)
+set_config('debug', 0, 'core');
+set_config('debugdisplay', 0, 'core');
+19.5 YEDEKLEME PLANI ÖNERİSİ
+0 2 * * * pg_dump moodledb > /backup/moodle_$(date
++\%Y\%m\%d).sql
+# Haftalık tam yedek
+0 3 * * 0 tar czf /backup/moodle_full_$(date
++\%Y\%m\%d).tgz /var/www/moodledata
+# 30 günden eski yedekleri sil
+0 4 * * * find /backup -name "*.sql" -mtime +30 -delete
+20. GÜN 20: 10 TEMMUZ 2026 (CUMA)
+DOKÜMANTASYON, RAPORLAMA VE PROJE TESLİMİ
+20.1 PROJE ÇIKTILARI
+1. 5 adet yapılandırılmış Ubuntu 26.04 sanal makine
+2. PostgreSQL 18.4 veritabanı (moodledb, 485 tablo)
+3. Redis 8.0 oturum sunucusu
+4. NFS paylaşımlı dosya sistemi
+5. APP1: Docker üzerinde Moodle 4.5.12+
+6. APP2: Native Apache üzerinde Moodle 4.5.12+
+7. Ollama AI: llama3.2:3b modeli
+8. Moodle AI Provider: OpenAI → Ollama entegrasyonu
+9. Test kursu: Deneme 1234 (ID:3)
+10. Tam sistem dokümantasyonu
+20.2 YAPILAN TÜM KOD DEĞİŞİKLİKLERİ
+APP1 - /home/voaxy/moodle-docker/moodle/config.php:
+[+] $CFG->curlsecurityblockedhosts = '';
+[+] $CFG->curlsecurityallowedport = '80,443,11434';
+[*] dbhost: 192.168.126.131 → 10.10.13.27
+[*] dbpass düzeltildi
+[*] wwwroot: 192.168.126.129 → 10.10.13.26
+[*] session_redis_host: 192.168.126.132 → 10.10.12.54
+APP1 - /home/voaxy/moodle-docker/docker-compose.yml:
+[*] MOODLE_DOCKER_DBHOST güncellendi
+[*] build: . (Dockerfile'dan)
+APP1 - /home/voaxy/moodle-docker/Dockerfile:
+[+] YENİ DOSYA: pdo_pgsql'li özel imaj
+APP1 - /etc/systemd/system/ollama.service:
+[+] Environment="OLLAMA_HOST=0.0.0.0"
+APP2 - /var/www/html/moodle/config.php:
+[+] $CFG->curlsecurityblockedhosts = '';
+[+] $CFG->curlsecurityallowedport = '80,443,11434';
+[*] dbport: '' → 5432
+Veritabanı (config tablosu):
+[*] core/curlsecurityblockedhosts: 10.0.0.0/8 silindi
+[*] core/curlsecurityallowedport: 11434 eklendi
+Veritabanı (config_plugins tablosu):
+[+] 15+ yeni AI provider ayarı eklendi
+20.3 NİHAİ DURUM ÖZETİ
+Tablo-20: 4. HAFTA: TEST, SORUN GİDERME VE TESLİM
+Bileşen	Eski	Yeni
+
+Yüksek Erişilebilirlik YOK            ✅ 2 Web Sunucusu
+Tablo-21: 4. HAFTA: TEST, SORUN GİDERME VE TESLİM
+APP1 Moodle	4.4.12+	4.5.12+ (Docker)
+APP2 Moodle	4.3.11+	4.5.12+ (Apache)
+PostgreSQL	18.4	18.4 (korundu)
+Redis	8.0.5	8.0.5 (korundu)
+Ollama AI	YOK	llama3.2:3b
+AI Generate Text	YOK	✅ ÇALIŞIYOR
+AI Summarise Text	YOK	✅ ÇALIŞIYOR
+AI Generate Image	YOK	❌ DEVRE DIŞI
+Test Kursu	YOK	Deneme 1234 (ID:3)
+Yedek	YOK	2.1 MB (mevcut)
+
+20.4 KARŞILAŞILAN TÜM SORUNLAR VE ÇÖZÜMLERİ
+1  Eski ağ IP'leri geçersiz → config/docker-compose
+güncellendi
+2  pdo_pgsql eksik → Dockerfile ile özel imaj
+3  Redis adresi eski → session_redis_host güncellendi
+4  Apache port 80 çakışması → host apache2 disable
+5  Docker ağ arızası → nsenter + veth manuel ağ kurulumu
+6  Docker bind-mount inode → rsync in-place güncelleme
+7  rsync --exclude hatası → --exclude='/config.php'
+8  Cache namespace hatası → rsync düzeltildi
+9  Ollama localhost → OLLAMA_HOST=0.0.0.0
+10 Endpoint eksik → /v1/chat/completions
+11 Action key hatası → generate_text (basename)
+12 cURL 10.0.0.0/8 engeli → blocked hosts güncellendi
+13 Port 11434 kapalı → allowed ports'a eklendi
+14 generate_image OpenAI → kapatıldı
+20.5 KAZANILAN DENEYİMLER
+1. VMware sanallaştırma ve sanal makine yönetimi
+2. Ubuntu Server 26.04 LTS sistem yönetimi
+3. Netplan ile ağ yapılandırması ve IP adresleme
+4. Docker konteynerizasyon ve Docker Compose orkestrasyonu
+5. Dockerfile ile özel imaj oluşturma
+6. Docker bind-mount ve inode yönetimi
+7. PostgreSQL 18.4 kurulumu, yapılandırması ve güvenliği
+8. Redis kurulumu ve oturum yönetimi entegrasyonu
+9. NFS paylaşımlı dosya sistemi kurulumu
+10. Moodle LMS kurulumu ve yapılandırması (iki farklı yöntem)
+11. Moodle 4.4/4.3 → 4.5 major sürüm yükseltmesi
+12. Paylaşımlı veritabanı ile çoklu sunucu mimarisi
+13. Ollama yerel LLM kurulumu ve yönetimi
+14. Moodle AI Provider API entegrasyonu
+15. cURL güvenlik politikası yapılandırması
+16. Linux ağ sorun giderme (nsenter, veth, iptables, iproute2)
+17. PHP, Apache, PostgreSQL log analizi ve hata ayıklama
+18. rsync ile dosya senkronizasyonu ve güncelleme stratejileri
+19. Sistem güvenlik denetimi ve iyileştirme önerileri
+20. Teknik dokümantasyon ve raporlama
+
+
+
